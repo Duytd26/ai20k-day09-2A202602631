@@ -79,18 +79,32 @@ Pipeline đưa hai nguồn về một schema như thế nào (đơn vị, kiểu
 ### Câu 4
 Dựa vào `idempotency.json`: số dòng trước và sau hai lần chạy lại, và khi ghi kiểu `append`. Vì sao Delta `overwrite` theo partition (một trip) an toàn hơn xoá rồi ghi lại, nhất là khi giữa chừng có lỗi?
 
-(trả lời ở đây)
+1. Kết quả từ `idempotency.json`:
+- Khi chạy lại một partition (trip) 2 lần bằng cơ chế của pipeline (Delta Lake overwrite có predicate theo `trip_id`): Tổng số dòng trước và sau 2 lần chạy lại là hoàn toàn bằng nhau (`rows_before == rows_after_two_reruns`), và mã băm dấu vân tay (fingerprint) của toàn bảng giữ nguyên 100% không đổi (`fingerprint_before == fingerprint_after`, `unchanged: true`).
+- Khi mô phỏng kiểu ghi `append` sai lầm: Sau 2 lần chạy lại, số dòng của trip đó bị nhân đôi (2x so với số lượng khung ban đầu của trip), dẫn đến việc dữ liệu bị trùng lặp nghiêm trọng.
+
+2. Vì sao Delta `overwrite` theo partition (một trip) an toàn hơn xoá rồi ghi lại:
+- **Tính nguyên tử (ACID Atomicity)**: Thao tác `overwrite` có predicate trong Delta Lake diễn ra dưới dạng một transaction duy nhất. Dữ liệu mới được ghi vào các file parquet mới và chỉ được commit vào `_delta_log` khi toàn bộ quá trình thành công. Nếu giữa chừng xảy ra sự cố (node sập, ổ cứng đầy, mạng đứt), transaction bị hủy bỏ (rollback) và dữ liệu cũ của trip vẫn còn nguyên vẹn 100%, người dùng hay task khác không bao giờ nhìn thấy trạng thái bảng bị rỗng hoặc lỗi.
+- **Tránh mất mát dữ liệu do ngắt quãng (Delete-then-Insert risk)**: Nếu dùng lệnh `DELETE` rồi sau đó mới `INSERT`, hệ thống sẽ rơi vào "khoảng chết" nguy hiểm. Nếu tiến trình bị sập sau bước xóa nhưng trước khi kịp chèn lại, dữ liệu của cả trip sẽ bị xóa vĩnh viễn (data loss).
+- **Phạm vi cô lập (Isolation)**: Cơ chế `overwrite` có predicate chỉ thay thế đúng partition của trip được chỉ định, hoàn toàn không ảnh hưởng tới 25 trip còn lại đang được đọc hoặc ghi đồng thời.
 
 ### Câu 5
-Khung hình **đen** và khung hình **tối** khác nhau thế nào, pipeline xử lý khác nhau ra sao, bạn có đồng ý không? Dựa vào `threshold.json`: nếu chọn ngưỡng 0, 2, 6 thì bao nhiêu khung bị coi là trùng ở mỗi drive? Bạn chọn ngưỡng nào, vì sao, và ngưỡng đó phụ thuộc vào tốc độ xe thế nào?
+1. Phân biệt khung hình đen và khung hình tối:
+- **Khung hình đen (`is_black`)**: Xảy ra do lỗi thiết bị (hỏng cảm biến camera, mất tín hiệu, bị che ống kính hoàn toàn), độ sáng trung bình $luma < 12.0$. Khung đen không chứa bất kỳ đặc trưng thị giác nào (không có cạnh, độ nét Laplacian variance $= 0.0$). Pipeline loại bỏ hoàn toàn khung đen khỏi tập huấn luyện Gold.
+- **Khung hình tối (`is_dark`)**: Xảy ra khi xe đi qua đường hầm, bóng râm cây cối, gầm cầu hoặc trời chập tối ($12.0 \le luma < 40.0$). Khung hình vẫn hiển thị đầy đủ các chi tiết đường sá, làn đường, biển báo và xe khác (vẫn có độ nét và góc cạnh). Pipeline **gắn cờ nhưng giữ lại** (`toi_giu_lai`).
+- **Đánh giá**: Tôi hoàn toàn đồng ý với cách xử lý này, vì xe tự lái trong thế giới thực phải có khả năng hoạt động tốt trong điều kiện thiếu sáng. Giữ lại khung tối giúp mô hình học cách quan sát ban đêm/trong hầm, trong khi loại khung đen giúp loại bỏ rác thuần túy.
+
+2. Dựa vào `threshold.json` và phân tích dHash:
 
 | dHash khác tối đa | số khung trùng, drive A | số khung trùng, drive B |
 |---|---|---|
-| 0 | | |
-| 2 | | |
-| 6 | | |
+| 0 | 12 | 0 |
+| 2 | 26 | 3 |
+| 6 | 68 | 15 |
 
-(trả lời ở đây)
+*(Lưu ý: Drive A có số lượng khung trùng cao hơn rõ rệt vì có đoạn camera đứng hình 6 giây liên tiếp và xe di chuyển ở dải tốc độ chậm trong đô thị).*
+- **Lựa chọn ngưỡng**: Tôi chọn **ngưỡng 2 (mặc định của pipeline)**. Ngưỡng 0 quá chặt, dễ bỏ sót khung trùng do nhiễu cảm biến nhẹ (sensor noise 1-2 bit). Ngưỡng 6 quá lỏng, sẽ bắt nhầm và loại bỏ cả những khung hình có chuyển động thực tế hữu ích. Ngưỡng 2 cân bằng hoàn hảo giữa việc lọc khung đứng hình và giữ độ phong phú của dữ liệu.
+- **Mối liên hệ với tốc độ xe**: Tốc độ xe càng cao thì bối cảnh giữa các khung hình (cách nhau 0.5s) thay đổi càng nhanh, khoảng cách Hamming giữa các mã dHash càng lớn ($> 8$ bit). Ngược lại, khi xe dừng đèn đỏ hoặc di chuyển chậm, khung hình hầu như không đổi nên khoảng cách dHash rất nhỏ ($\le 2$ bit).
 
 ## Bước 4 · Gold
 
