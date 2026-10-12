@@ -21,7 +21,16 @@
 ### Câu 1
 Liệt kê **ít nhất 4 khác biệt** giữa telemetry nguồn A và nguồn B mà bạn thấy ở bronze. Vì sao pipeline giữ **mỗi nguồn một bảng bronze** và để mọi cột ở dạng chữ, thay vì gộp và ép kiểu ngay?
 
-(trả lời ở đây)
+1. Bốn khác biệt lớn giữa telemetry nguồn A và nguồn B ở Bronze:
+- **Thời gian (Timestamp)**: Nguồn A sử dụng định dạng ISO 8601 UTC string (`ts_utc`, ví dụ `2025-10-07T08:00:00.014Z`), trong khi Nguồn B sử dụng epoch timestamp dạng số mili-giây (`timestamp_ms`, ví dụ `1759933801509`).
+- **Tốc độ và Đơn vị**: Nguồn A lưu cột `speed_mps` với đơn vị mét/giây (m/s); Nguồn B lưu cột `spd_kmh` với đơn vị kilômét/giờ (km/h).
+- **Đặt tên cột (Schema drift)**: Nguồn A dùng tên cột viết tắt/chi tiết như `lat`, `lon`, `alt_m`, `heading_deg`, `acc_x`, `acc_y`, `steer`; còn Nguồn B dùng `latitude`, `longitude`, `altitude`, `hdg`, `ax`, `ay`, `steering`.
+- **Thang đo chân ga / phanh**: Nguồn A biểu diễn tỉ lệ thập phân từ 0.0 đến 1.0 (`gas`, `brake`), còn Nguồn B biểu diễn theo tỉ lệ phần trăm từ 0 đến 100% (`throttle_pct`, `brake_pct`).
+- **Độ lệch đồng hồ (Clock Offset)**: Theo `sources.json`, telemetry A khớp đồng hồ với video (`offset = 0 ms`), trong khi telemetry B bị lệch đồng hồ 1500 ms (`offset = 1500 ms`) so với video.
+
+2. Lý do pipeline giữ mỗi nguồn một bảng Bronze riêng và lưu mọi cột dạng chuỗi (text/string):
+- **Nguyên tắc raw landing (bất biến, trung thực)**: Tầng Bronze là tầng ghi nguyên bản không can thiệp, phản ánh chính xác dữ liệu từ cảm biến gửi về. Do hai nguồn có cấu trúc khác nhau (schema drift), việc giữ từng bảng riêng biệt giúp tránh làm vỡ schema hoặc tạo ra bảng hỗn hợp nhiều giá trị null.
+- **Không ép kiểu ngay để tránh crash pipeline**: Nếu ép kiểu float, int hay datetime ngay tại Bronze, bất kỳ dòng dữ liệu lỗi nào (ô trống, chuỗi bẩn, định dạng lạ) sẽ khiến ingestion sập ngay lập tức hoặc làm mất dữ liệu. Việc giữ nguyên chuỗi cho phép nhận 100% dữ liệu vào Lake an toàn, lưu lại vết (lineage/audit), và chuyển trách nhiệm làm sạch/ép kiểu/bắt lỗi sang tầng Silver.
 
 ## Bước 2 · Silver telemetry
 
