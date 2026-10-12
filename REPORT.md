@@ -37,12 +37,42 @@ Liệt kê **ít nhất 4 khác biệt** giữa telemetry nguồn A và nguồn 
 ### Câu 2
 Pipeline đưa hai nguồn về một schema như thế nào (đơn vị, kiểu thời gian, **độ lệch đồng hồ**)? Bằng chứng nào trong kết quả bước 2 cho thấy đã đúng? Dán bảng quarantine của bạn (số dòng theo từng lý do, từng drive) và giải thích vì sao dòng lỗi vào `rejects` thay vì bị xoá.
 
-(trả lời ở đây)
+1. Cách pipeline đưa hai nguồn về một schema:
+- **Chuẩn hóa tốc độ**: Telemetry A đã ở đơn vị m/s nên giữ nguyên. Telemetry B ở đơn vị km/h được quy đổi sang m/s trong `stg_telemetry_b.sql` bằng công thức: `try_cast(nullif(t.spd_kmh, '') as double) / 3.6 as speed_mps`.
+- **Chuẩn hóa thời gian và bù lệch đồng hồ (Clock Offset)**: Telemetry A parse trực tiếp từ chuỗi ISO UTC `ts_utc` sang `timestamptz`. Telemetry B được đọc từ epoch milliseconds (`timestamp_ms`), trừ đi độ lệch đồng hồ 1500 ms khai báo trong `sources.json` (lưu tại `bronze.video_files`), rồi đổi sang giây: `to_timestamp((cast(t.timestamp_ms as bigint) - off.offset_ms) / 1000.0) as ts`.
+- **Chuẩn hóa chân ga, phanh và cột khác**: Đổi tên các cột của B (`latitude -> lat`, `longitude -> lon`, `hdg -> heading_deg`, `ax/ay -> acc_x/acc_y`, `steering -> steer`), đưa thang đo chân ga/phanh từ phần trăm (%) về thang 0.0 - 1.0 (`throttle_pct / 100 as gas`, `brake_pct / 100 as brake`).
+
+2. Bằng chứng kết quả đã đúng:
+- Mốc bắt đầu telemetry B sau khi trừ offset là `2025-10-08 14:30:00.009+00:00`, khớp chính xác với mốc bắt đầu của video `drive_b.mp4` (`2025-10-08 14:30:00`) trong khoảng sai lệch chưa đầy 10 ms (< 0.5 s).
+- Tốc độ tối đa sau chuẩn hóa hợp lý: Drive A đạt tối đa 71 km/h (19.82 m/s), Drive B đạt tối đa 100 km/h (27.83 m/s), đều dưới giới hạn vật lý 130 km/h.
+
+3. Bảng quarantine (số dòng theo lý do, từng drive):
+
+| drive_id | reject_reason | so_dong |
+|---|---|---|
+| drive_a | duplicate | 20 |
+| drive_a | speed_missing | 30 |
+| drive_a | speed_out_of_range | 3 |
+| drive_b | duplicate | 20 |
+| drive_b | speed_missing | 30 |
+| drive_b | speed_out_of_range | 3 |
+
+*Tổng cộng mỗi drive có 53 dòng lỗi bị cách ly. Số dòng sạch thu được: Drive A có 2,968 dòng; Drive B có 3,181 dòng. Tổng dòng sạch + quarantine: Drive A = 2,968 + 53 = 3,021; Drive B = 3,181 + 53 = 3,234 (khớp 100% dữ liệu gốc).*
+
+4. Vì sao dòng lỗi vào `rejects` thay vì bị xóa:
+- **Truy vết và giám sát (Audit & Observability)**: Giữ lại dòng lỗi kèm `reject_reason` giúp kỹ sư theo dõi tỷ lệ lỗi, phát hiện cảm biến nào đang có vấn đề bất thường mà không làm mất thông tin.
+- **Khả năng tái xử lý (Reprocessing)**: Khi có thuật toán làm sạch tốt hơn (ví dụ nội suy các dòng thiếu tốc độ) hoặc hiệu chỉnh lại luật lọc, dữ liệu trong `rejects` vẫn còn nguyên để phục hồi lại thay vì bị xóa im lặng (silent data loss).
 
 ### Câu 3
-Vì sao test `max_gap_ms` là `warn` còn `in_range` là `error`? Kết quả thí nghiệm `break-gate` của bạn (`break_gate.json`): test nào bắt được, bao nhiêu dòng, và điều đó cho biết gì về vai trò của "cổng chất lượng"?
+1. Vì sao test `max_gap_ms` là `warn` còn `in_range` là `error`:
+- `max_gap_ms` (warn): Khoảng cách thời gian giữa hai bản ghi đo vượt quá 1000 ms chỉ phản ánh việc mất tín hiệu cảm biến tạm thời (sensor dropouts). Trong xe thực tế, hiện tượng này đôi khi xảy ra và là khiếm khuyết được dung thứ (tolerated defect). Pipeline gắn nhãn cảnh báo để kỹ sư kiểm tra nhưng không dừng hệ thống vì xe vẫn đang vận hành.
+- `in_range` (error): Giá trị tốc độ xe vật lý bắt buộc phải nằm trong khoảng 0 đến 70 m/s (~252 km/h). Tốc độ âm hoặc tốc độ phi thực tế lọt vào bảng sạch là lỗi dữ liệu nghiêm trọng (fatal defect), sẽ làm sai lệch hoàn toàn thuật toán điều khiển và mô hình AI huấn luyện ở tầng sau, vì vậy phải cấu hình mức `error` để chặn đứng pipeline ngay tại chỗ.
 
-(trả lời ở đây)
+2. Kết quả thí nghiệm `break-gate` (`break_gate.json`):
+- Khi nới luật làm sạch từ 70 lên 1000 m/s: Các dòng có tốc độ phi lý không còn bị phân loại vào `rejects` mà lọt thẳng vào bảng `silver_telemetry`.
+- Test `in_range` trên cột `speed_mps` lập tức bắt được chính xác **6 dòng** vi phạm (3 dòng ở drive A và 3 dòng ở drive B), làm dbt test chuyển trạng thái `FAIL` (Summary: `PASS=4 WARN=1 ERROR=1 SKIP=0`) và dừng pipeline.
+- Khi khôi phục lại luật gốc: dbt test trở về trạng thái đạt `PASS=4 WARN=1 ERROR=0 SKIP=0`.
+- **Vai trò của cổng chất lượng (Quality Gate)**: Hoạt động như chốt chặn độc lập bảo vệ các tầng hạ nguồn. Dù logic xử lý ở tầng trên có vô tình bị nới lỏng hay có lỗi tiềm ẩn lọt qua, cổng kiểm thử dữ liệu vẫn sẽ phát hiện và ngăn chặn không cho dữ liệu bẩn xâm nhập vào kho dữ liệu Gold và mô hình học máy.
 
 ## Bước 3 · Silver frames
 
