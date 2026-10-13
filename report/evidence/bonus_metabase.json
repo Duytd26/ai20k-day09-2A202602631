@@ -1,0 +1,70 @@
+{
+  "student_id": "2A202602631",
+  "ran_at": "2026-10-13T02:07:11.035277+00:00",
+  "experiment": "bonus_metabase_top_dropped_trips",
+  "query": "select trip_id, drive_id, frames, frames_kept,\n       frames - frames_kept as frames_dropped,\n       round((frames - frames_kept) * 100.0 / nullif(frames, 0), 2) as dropped_pct,\n       lighting, conditions\nfrom marts.mart_trip_summary\norder by dropped_pct desc, trip_id\nlimit 5;",
+  "columns": [
+    "trip_id",
+    "drive_id",
+    "frames",
+    "frames_kept",
+    "frames_dropped",
+    "dropped_pct",
+    "lighting",
+    "conditions"
+  ],
+  "rows": [
+    [
+      "trip-04622",
+      "drive_a",
+      60,
+      26,
+      34,
+      56.67,
+      "Day",
+      "Clouds"
+    ],
+    [
+      "trip-03904",
+      "drive_a",
+      22,
+      11,
+      11,
+      50.0,
+      "Day",
+      "Clouds"
+    ],
+    [
+      "trip-02086",
+      "drive_a",
+      60,
+      32,
+      28,
+      46.67,
+      "Day",
+      "Clouds"
+    ],
+    [
+      "trip-08888",
+      "drive_a",
+      60,
+      36,
+      24,
+      40.0,
+      "Day",
+      "Clouds"
+    ],
+    [
+      "trip-07774",
+      "drive_a",
+      34,
+      21,
+      13,
+      38.24,
+      "Day",
+      "Clouds"
+    ]
+  ],
+  "dashboard_url": "http://localhost:3000/dashboard/3",
+  "question_url": "http://localhost:3000/question/48"
+}

@@ -13,8 +13,9 @@
 
 - `dataset_version` của bạn: `c8936824962d`  (khớp `report/evidence/run_summary.json`)
 - Số khung hình train / val / test của bạn: **705 / 157 / 157** (tổng 1.019; 18 / 4 / 4 trip)
+- Lượt chạy cuối từ lake trống ngày **13/10/2026, 09:03 (UTC+7)** đạt toàn bộ năm bước và 27/27. Export lại giữ nguyên phiên bản, số khung và số trip: `report/evidence/export_stability.json` ghi `unchanged=true`.
 - `report/verify.txt`: tạo bằng `python3 scripts/check_submission.py --save-verify` (phải có `27/27 checks passed`).
-- Ảnh chụp trong `report/screenshots/`: `airflow_graph.png`, `minio_lake.png`, `metabase_dashboard.png`, và ảnh bài tập sập/chạy lại (log task đỏ thấy trip của bạn).
+- Ảnh chụp trong `report/screenshots/`: `airflow_graph.png`, `minio_lake.png`, `metabase_dashboard.png`, `airflow_crash_task.png` và `airflow_retry_graph.png` (run crash/retry đã phục hồi).
 
 ## Bước 1 · Bronze
 
@@ -127,7 +128,20 @@ Dựa vào `leakage.json`: chia theo khung hình làm bao nhiêu trip bị chia 
 
 ### Câu 8
 
-Manifest thực tế được lưu tại `report/evidence/dataset_manifest.json`, lấy từ `lake/gold/datasets/c8936824962d/manifest.json` sau khi DAG phục hồi. Phần lineage ghi SHA256 của hai video gốc và version của tám bảng: bronze.raw_telemetry_a, bronze.raw_telemetry_b, bronze.trips_raw, bronze.video_files, silver.frames, silver.telemetry, silver.frames_flagged, silver.frame_telemetry. Không mặc định mọi bảng đều version 0: silver.frames có nhiều commit do xử lý từng trip và chạy lại.
+Manifest thực tế của lượt chạy cuối được lưu tại `report/evidence/dataset_manifest.json`, lấy từ `lake/gold/datasets/c8936824962d/manifest.json`. Bản sau DAG phục hồi trước đó được giữ riêng tại `dataset_manifest_crash_retry.json`.
+
+| Bảng upstream trong lineage | Version ở lượt chạy cuối |
+|---|---:|
+| bronze.raw_telemetry_a | 0 |
+| bronze.raw_telemetry_b | 0 |
+| bronze.trips_raw | 0 |
+| bronze.video_files | 1 |
+| silver.frames | 25 |
+| silver.telemetry | 0 |
+| silver.frames_flagged | 0 |
+| silver.frame_telemetry | 0 |
+
+SHA256 video A: `636ba1a98dfc5ba665d1c935e1d2064e69f4df360ff9ffbd15795957d5e7e9aa`; video B: `bfa62703f645ff77a8578ae3fc74a00881140d38a404d43c8e2af265bbee9fdc`. Gold có train/val/test và manifest.json; danh sách và số ảnh từng thư mục được kiểm tra qua API MinIO trong `gold_dataset_contents.json`.
 
 Để tái tạo sau ba tháng phải giữ video khớp SHA256, snapshot Delta cùng file dữ liệu chưa bị vacuum/xóa, code và cấu hình ngưỡng, môi trường giải mã, và MSSV 2A202602631 để chia split. Lineage giúp truy vết; chỉ có số version khi các file snapshot đã mất thì không đủ để time travel.
 
@@ -162,6 +176,34 @@ order by lighting;
 Kết quả: **Day — 1.246 khung, 227 bị loại, 18,22%**. Bộ dữ liệu chỉ có lighting Day, chưa thể so sánh ngày/đêm. Số bị loại gồm mọi luật Gold, kể cả mất đồng bộ, và không đếm trùng các cờ.
 
 Query cũ không chạy được vì gallery chỉ chứa khung đã giữ và không có is_black/is_blurry/is_near_dup. Query sửa dùng số tổng/giữ ở cấp trip. Đã thêm câu hỏi vào http://localhost:3000/dashboard/3; câu hỏi http://localhost:3000/question/47. Script tái tạo: `scripts/add_metabase_question.py`.
+
+## Bonus · Câu hỏi Metabase thứ hai
+
+**Trip nào có tỷ lệ khung bị loại cao nhất để ưu tiên kiểm tra chất lượng?**
+
+```sql
+select trip_id, drive_id, frames, frames_kept,
+       frames - frames_kept as frames_dropped,
+       round((frames - frames_kept) * 100.0 / nullif(frames, 0), 2) as dropped_pct,
+       lighting, conditions
+from marts.mart_trip_summary
+order by dropped_pct desc, trip_id
+limit 5;
+```
+
+| Trip | Tổng khung | Giữ | Loại | Tỷ lệ loại (%) |
+|---|---:|---:|---:|---:|
+| trip-04622 | 60 | 26 | 34 | 56,67 |
+| trip-03904 | 22 | 11 | 11 | 50,00 |
+| trip-02086 | 60 | 32 | 28 | 46,67 |
+| trip-08888 | 60 | 36 | 24 | 40,00 |
+| trip-07774 | 34 | 21 | 13 | 38,24 |
+
+Cả năm trip thuộc drive A, lighting Day, conditions Clouds. Xếp hạng giúp ưu tiên kiểm tra trip-04622, nhưng các nhãn này không chứng minh thời tiết là nguyên nhân. Kết quả được lưu trong `report/evidence/bonus_metabase.json`; truy vấn điều tra cờ từng trip nằm trong `bonus_trip_reasons.txt`. Không cộng các cờ vì một khung có thể mang nhiều lỗi. Câu hỏi thứ hai đã thêm vào dashboard riêng: http://localhost:3000/dashboard/3, câu hỏi http://localhost:3000/question/48.
+
+Điều tra Silver cho thấy ở năm trip này, số gần trùng lần lượt **34/11/28/24/13**, đúng bằng số bị loại; các cờ đen, mờ và mất đồng bộ đều bằng **0**. Như vậy nguyên nhân loại theo luật pipeline ở nhóm top 5 là `is_near_dup`. Điều này chưa xác định nguyên nhân vật lý (xe dừng, cảnh ít đổi hay camera đứng hình); cần xem ảnh/video trước khi kết luận thiết bị lỗi.
+
+Bonus này dùng lựa chọn câu hỏi Metabase thứ hai theo RUBRIC.md. Không thay cấu hình split hay sync_tol_ms; MSSV và ngưỡng của bài nộp chính được giữ nguyên. Điểm cộng thực tế do giảng viên chấm, không được đảm bảo tự động.
 
 ## Nhìn lại
 

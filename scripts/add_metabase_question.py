@@ -1,5 +1,8 @@
 """Add the lab's lighting analysis using columns present in the warehouse."""
 from setup_metabase import MB, USER, QUESTIONS, call, wait_ready
+from datetime import datetime, timezone
+from pathlib import Path
+import json
 
 SQL = """select lighting,
        sum(frames) as tong_so_khung,
@@ -8,6 +11,14 @@ SQL = """select lighting,
 from marts.mart_trip_summary
 group by lighting
 order by lighting;"""
+
+BONUS_SQL = """select trip_id, drive_id, frames, frames_kept,
+       frames - frames_kept as frames_dropped,
+       round((frames - frames_kept) * 100.0 / nullif(frames, 0), 2) as dropped_pct,
+       lighting, conditions
+from marts.mart_trip_summary
+order by dropped_pct desc, trip_id
+limit 5;"""
 
 
 def main():
@@ -42,6 +53,32 @@ def main():
         call("PUT", f"/api/dashboard/{dashboard['id']}", {"dashcards": clean}, token=token)
     print("dashboard:", f"{MB}/dashboard/{dashboard['id']}")
     print("question:", f"{MB}/question/{card['id']}")
+    bonus_name = "Top 5 trip co ty le khung bi loai cao nhat - 2A202602631"
+    bonus = next((c for c in cards if c["name"] == bonus_name), None)
+    if bonus is None:
+        bonus = call("POST", "/api/card", {"name": bonus_name, "display": "table", "visualization_settings": {},
+                     "dataset_query": {"type": "native", "database": db["id"], "native": {"query": BONUS_SQL}}}, token=token)
+    result = call("POST", f"/api/card/{bonus['id']}/query", {}, token=token)
+    if result.get("status") != "completed":
+        raise RuntimeError(f"Bonus query failed: {result.get('error')}")
+    print("bonus result:", result["data"]["rows"])
+    full = call("GET", f"/api/dashboard/{dashboard['id']}", token=token)
+    if not any(c.get("card_id") == bonus["id"] for c in full["dashcards"]):
+        clean = [{k: c[k] for k in ("id", "card_id", "row", "col", "size_x", "size_y", "visualization_settings", "parameter_mappings") if k in c}
+                 for c in full["dashcards"]]
+        for c in clean:
+            if c["row"] >= 4:
+                c["row"] += 5
+        clean.append({"id": -101, "card_id": bonus["id"], "row": 4, "col": 0, "size_x": 24, "size_y": 5,
+                      "visualization_settings": {}, "parameter_mappings": []})
+        call("PUT", f"/api/dashboard/{dashboard['id']}", {"dashcards": clean}, token=token)
+    evidence = {"student_id": "2A202602631", "ran_at": datetime.now(timezone.utc).isoformat(),
+                "experiment": "bonus_metabase_top_dropped_trips", "query": BONUS_SQL,
+                "columns": [c["name"] for c in result["data"]["cols"]], "rows": result["data"]["rows"],
+                "dashboard_url": f"{MB}/dashboard/{dashboard['id']}", "question_url": f"{MB}/question/{bonus['id']}"}
+    path = Path(__file__).resolve().parent.parent / "report" / "evidence" / "bonus_metabase.json"
+    path.write_text(json.dumps(evidence, indent=2), encoding="utf-8")
+    print("bonus question:", evidence["question_url"])
 
 
 if __name__ == "__main__":

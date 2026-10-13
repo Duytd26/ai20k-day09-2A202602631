@@ -1,0 +1,21 @@
+{
+  "student_id": "2A202602631",
+  "dataset_version": "c8936824962d",
+  "bucket": "lake",
+  "prefix": "gold/datasets/c8936824962d/",
+  "folders": [
+    "test",
+    "train",
+    "val"
+  ],
+  "files": [
+    "manifest.json",
+    "manifest.parquet"
+  ],
+  "jpg_counts": {
+    "train": 705,
+    "val": 157,
+    "test": 157
+  },
+  "matches_run_summary": true
+}

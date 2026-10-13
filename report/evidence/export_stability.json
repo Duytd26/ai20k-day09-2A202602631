@@ -1,0 +1,34 @@
+{
+  "student_id": "2A202602631",
+  "ran_at": "2026-10-13T02:04:27.138878+00:00",
+  "experiment": "export_stability",
+  "before": {
+    "dataset_version": "c8936824962d",
+    "frames": 1019,
+    "by_split": {
+      "train": 705,
+      "val": 157,
+      "test": 157
+    },
+    "trips_by_split": {
+      "train": 18,
+      "test": 4,
+      "val": 4
+    }
+  },
+  "after": {
+    "dataset_version": "c8936824962d",
+    "frames": 1019,
+    "by_split": {
+      "train": 705,
+      "val": 157,
+      "test": 157
+    },
+    "trips_by_split": {
+      "test": 4,
+      "train": 18,
+      "val": 4
+    }
+  },
+  "unchanged": true
+}
