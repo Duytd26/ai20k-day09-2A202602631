@@ -1,0 +1,48 @@
+{
+    "student_id":  "2A202602631",
+    "purpose":  "final visual inspection of Silver frame flags",
+    "samples":  {
+                    "value":  [
+                                  {
+                                      "frame_id":  "drive_a-01001",
+                                      "frame_uri":  "s3://lake/silver/frames/drive_a/01001.jpg",
+                                      "brightness":  0.0,
+                                      "blur_score":  0.0,
+                                      "is_black":  true,
+                                      "is_blurry":  false,
+                                      "is_dark":  false,
+                                      "is_near_dup":  false,
+                                      "sync_gap_ms":  18,
+                                      "sync_ok":  true,
+                                      "sample":  "black"
+                                  },
+                                  {
+                                      "frame_id":  "drive_a-01998",
+                                      "frame_uri":  "s3://lake/silver/frames/drive_a/01998.jpg",
+                                      "brightness":  117.76955729166667,
+                                      "blur_score":  2.484745740890503,
+                                      "is_black":  false,
+                                      "is_blurry":  true,
+                                      "is_dark":  false,
+                                      "is_near_dup":  false,
+                                      "sync_gap_ms":  16,
+                                      "sync_ok":  true,
+                                      "sample":  "blurry"
+                                  },
+                                  {
+                                      "frame_id":  "drive_a-00545",
+                                      "frame_uri":  "s3://lake/silver/frames/drive_a/00545.jpg",
+                                      "brightness":  39.646796875,
+                                      "blur_score":  947.1948852539062,
+                                      "is_black":  false,
+                                      "is_blurry":  false,
+                                      "is_dark":  true,
+                                      "is_near_dup":  false,
+                                      "sync_gap_ms":  91,
+                                      "sync_ok":  true,
+                                      "sample":  "dark_kept"
+                                  }
+                              ],
+                    "Count":  3
+                }
+}

@@ -66,8 +66,8 @@ Pipeline đưa hai nguồn về một schema như thế nào (đơn vị, kiểu
 
 ### Câu 3
 1. Vì sao test `max_gap_ms` là `warn` còn `in_range` là `error`:
-- `max_gap_ms` (warn): Khoảng cách thời gian giữa hai bản ghi đo vượt quá 1000 ms chỉ phản ánh việc mất tín hiệu cảm biến tạm thời (sensor dropouts). Trong xe thực tế, hiện tượng này đôi khi xảy ra và là khiếm khuyết được dung thứ (tolerated defect). Pipeline gắn nhãn cảnh báo để kỹ sư kiểm tra nhưng không dừng hệ thống vì xe vẫn đang vận hành.
-- `in_range` (error): Giá trị tốc độ xe vật lý bắt buộc phải nằm trong khoảng 0 đến 70 m/s (~252 km/h). Tốc độ âm hoặc tốc độ phi thực tế lọt vào bảng sạch là lỗi dữ liệu nghiêm trọng (fatal defect), sẽ làm sai lệch hoàn toàn thuật toán điều khiển và mô hình AI huấn luyện ở tầng sau, vì vậy phải cấu hình mức `error` để chặn đứng pipeline ngay tại chỗ.
+- `max_gap_ms` (warn): `schema.yml` cấu hình rõ `severity: warn` cho khoảng trống telemetry vượt 1.000 ms. Lab cho pipeline tiếp tục nhưng cần điều tra khoảng trống; khung mất đồng bộ được gắn cờ và loại khỏi Gold. Khoảng trống không tự xác định nguyên nhân, và lựa chọn warn không chứng minh hệ thống an toàn để vận hành xe thực tế.
+- `in_range` (error): Test kiểm tra luật tốc độ **0–70 m/s** của lab; không ghi đè severity nên dùng mức error mặc định. Đây là giới hạn chất lượng cấu hình, không phải giới hạn vật lý chung cho mọi xe. Nếu dòng vi phạm lọt vào Silver, dbt trả lỗi để chặn bước hạ nguồn.
 
 2. Kết quả thí nghiệm `break-gate` (`break_gate.json`):
 - Khi nới luật làm sạch từ 70 lên 1000 m/s: Các dòng có tốc độ phi lý không còn bị phân loại vào `rejects` mà lọt thẳng vào bảng `silver_telemetry`.
@@ -84,6 +84,18 @@ Theo `idempotency.json`, chạy lại **trip-07900** hai lần giữ nguyên **1
 Delta overwrite với predicate trip_id thay dữ liệu của một trip bằng một transaction. Lỗi trước commit không làm mất snapshot cũ; độc giả chỉ thấy snapshot đã commit. Xóa rồi ghi thành hai bước có thể để lại khoảng trống nếu tiến trình sập giữa hai bước. Tính nguyên tử này áp dụng cho bảng Delta; ảnh JPG trên object storage không nằm trong cùng một transaction với bảng.
 
 ### Câu 5
+
+Thống kê từ lượt chạy cuối, đối chiếu `run_summary.json`:
+
+| Drive | Tổng frame | Đen | Mờ | Gần trùng | Tối (gắn cờ) | Mất đồng bộ |
+|---|---:|---:|---:|---:|---:|---:|
+| drive_a | 602 | 6 | 9 | 149 | 4 | 7 |
+| drive_b | 644 | 4 | 0 | 53 | 61 | 7 |
+
+Một frame có thể mang nhiều cờ. Số tối là số được gắn `is_dark`, không đồng nghĩa tất cả đã vào Gold: frame tối vẫn bị loại nếu đồng thời mờ, gần trùng hoặc mất đồng bộ. Độ trễ đồng bộ trung bình A/B là **66/73 ms**; tối đa **2.884/3.112 ms**, còn ngưỡng giữ của lab là **150 ms**.
+
+Đã xem trực tiếp ba ảnh mẫu từ MinIO và đối chiếu metadata (`silver_frame_samples.json`): `drive_a-01001` đen hoàn toàn, brightness **0**; `drive_a-01998` mờ rõ, blur_score **2,485**; `drive_a-00545` còn thấy đường/cây dù cảnh tối, brightness **39,647**, không mờ/trùng và sync gap **91 ms**, nên đủ điều kiện giữ. Mẫu này minh họa các cờ, không đại diện cho toàn bộ ảnh trong dataset. Unit tests kiểm tra dHash/độ nét đạt **9/9** ở lần kiểm tra cuối.
+
 1. Phân biệt khung hình đen và khung hình tối:
 - **Khung hình đen (`is_black`)**: Lab dùng ngưỡng độ sáng trung bình $luma < 12.0$ và loại khỏi Gold. Ngưỡng này không tự chứng minh ảnh hoàn toàn mất chi tiết hoặc xác định nguyên nhân hỏng camera; cần xem ảnh để đánh giá.
 - **Khung hình tối (`is_dark`)**: Lab gắn cờ khi $12.0 \le luma < 40.0$. Khung được giữ nếu không vi phạm luật khác (mờ, trùng, mất đồng bộ), để duy trì dữ liệu thiếu sáng có thể vẫn hữu ích.
