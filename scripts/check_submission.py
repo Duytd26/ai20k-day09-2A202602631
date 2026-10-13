@@ -8,6 +8,7 @@ Mỗi dòng PASS / FAIL / WARN nói rõ cần sửa gì. FAIL là lỗi sẽ b�
 """
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -27,6 +28,9 @@ def check(level, name, detail=""):
 
 
 def sh(*cmd):
+    if os.name == "nt" and cmd[0] == "scripts/lab.sh" and cmd[1:] == ("verify",):
+        cmd = ("docker", "compose", "exec", "-T", "-w", "/opt/lab", "airflow",
+               "/home/airflow/lab-venv/bin/python", "-m", "pipeline.cli", "verify")
     return subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
 
 

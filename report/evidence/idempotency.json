@@ -1,0 +1,13 @@
+{
+  "experiment": "idempotency",
+  "student_id": "2A202602631",
+  "ran_at": "2026-10-13T01:33:24.228433+00:00",
+  "trip": "trip-07900",
+  "rows_before": 1246,
+  "rows_after_two_reruns": 1246,
+  "fingerprint_before": "6c7480dfde7e",
+  "fingerprint_after": "6c7480dfde7e",
+  "unchanged": true,
+  "rows_of_trip": 30,
+  "append_variant_rows_after_two_runs": 60
+}
